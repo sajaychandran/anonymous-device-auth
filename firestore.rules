@@ -1,0 +1,18 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Users collection — server (Admin SDK) writes only.
+    // Reads are limited to an authenticated user reading their own document;
+    // this app doesn't use Firebase Auth sessions, so in practice this
+    // resolves to "no client reads" — all reads happen server-side.
+    match /users/{userId} {
+      allow create, update, delete: if false;
+      allow read: if request.auth != null && request.auth.uid == userId;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

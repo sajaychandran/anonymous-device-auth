@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Environment secrets - NEVER commit!
+.env
+functions/.env
+*.env
+!.env.example
+!functions/.env.example
+
+# Firebase
+.firebase/
+firebase-debug.log
+firestore-debug.log
+
+# Service account keys - NEVER commit!
+service-account-key.json
+*-service-account*.json
+google-services.json
+GoogleService-Info.plist
+
+# Expo
+.expo/
+dist/
+web-build/
+
+# OS
+.DS_Store

@@ -1,0 +1,25 @@
+{
+  "name": "device-auth-app",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios"
+  },
+  "dependencies": {
+    "expo": "~52.0.0",
+    "expo-application": "*",
+    "expo-crypto": "*",
+    "expo-device": "*",
+    "expo-secure-store": "*",
+    "firebase": "^12.4.0",
+    "react": "18.3.1",
+    "react-native": "0.76.5",
+    "@react-navigation/native": "*",
+    "@react-navigation/native-stack": "*",
+    "react-native-safe-area-context": "*",
+    "react-native-screens": "*"
+  },
+  "private": true
+}
