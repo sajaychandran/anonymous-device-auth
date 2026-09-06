@@ -38,7 +38,13 @@ Two **separate Firebase projects**, on purpose:
 - **Main project** — stores user records (device hash, password hash, recovery code hash). Cloud Functions use the Admin SDK here, because they need it to read/write user documents.
 - **Logs project** — stores security audit logs *only*, in a project of its own, written to with the regular Firebase **client SDK**, not the Admin SDK.
 
-That second point is the core of the design: **Admin SDK bypasses Firestore security rules.** If audit logs lived in the same project as user data, a full compromise of the Cloud Functions codebase (stolen credentials, leaked `.env`, whatever) would hand an attacker Admin SDK access — meaning they could read *and delete* every log, erasing the only trail of what happened. Writing logs through the client SDK instead means the write path is bound by ordinary Firestore rules, same as any external caller. Those rules (see `firestore-logs-project.rules`) allow writes only, with `allow read: if false` and `allow delete: if false` — so even total compromise of the main project can't touch them.
+That second point is the core of the design: **Admin SDK bypasses Firestore security rules.** If audit logs lived in the same project as user data, a full compromise of the Cloud Functions codebase (stolen credentials, leaked `.env`, whatever) would hand an attacker Admin SDK access — meaning they could read every log entry, including the IP address tied to each event. IP address is the one field in this whole system that could deanonymize a user by linking a device to a real network identity, so it's the one thing that must never be readable under any compromise scenario. Writing logs through the client SDK instead means the write path is bound by ordinary Firestore rules (`firestore-logs-project.rules`): `allow read: if false`, no exceptions — no code path in this system, compromised or not, has a way around it. Deletion is blocked too, so an attacker can't quietly erase the trail either, but that's secondary; the main guarantee is that the IP simply never comes back out.
+
+### Hardening the logs rules for your fork
+
+The shipped `firestore-logs-project.rules` isn't a loose, generic template — it's locked to the **exact field set and types** that this repo's `logsProjectLogger.js` sends (`hasOnly`, not just `hasAll`, a type check on every individual field, and `timestamp == request.time` so entries can't be backdated). That precision is the point: a rule that only checks a few required fields exist still leaves room for extra fields to be smuggled into a write.
+
+If you fork this and change what the logger sends — add a field, rename one, add a new `event_type` — **update the rule to match exactly**, don't just widen it to "anything goes." The security property this system relies on (an attacker can write a log, but can never read one back, no matter what's in it) holds regardless of the field shape — but a rule that's looser than what your logger actually sends is doing less than it could.
 
 ## How signup works
 
@@ -118,4 +124,6 @@ I designed the architecture and made every security decision in this system — 
 
 ## License
 
-MIT — see [`LICENSE`](./LICENSE).
+**Polyform Noncommercial 1.0.0** — see [`LICENSE`](./LICENSE).
+
+Free to use, study, modify, and share for personal, academic, and other noncommercial purposes. **Commercial use requires a separate license from the author** — reach out if that's what you need. This is a deliberate choice: the device-binding and isolated-logging design here is the core mechanism behind a commercial product of mine, so this repo is shared to be read, learned from, and built on for noncommercial work — not folded into a competing paid product without permission.
