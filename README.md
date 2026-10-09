@@ -2,7 +2,7 @@
 
 An authentication system for anonymous platforms: users get an account with **zero personal information** — no email, no phone number, no name — while a device-binding mechanism keeps a single device from spinning up unlimited accounts.
 
-It was built as the auth backend for my own app, [and is now shared here as a standalone, reusable system].
+It was built as the auth backend for my own app, and is shared here as a standalone, reusable system.
 
 ## The problem this solves
 
@@ -38,7 +38,7 @@ Two **separate Firebase projects**, on purpose:
 - **Main project** — stores user records (device hash, password hash, recovery code hash). Cloud Functions use the Admin SDK here, because they need it to read/write user documents.
 - **Logs project** — stores security audit logs *only*, in a project of its own, written to with the regular Firebase **client SDK**, not the Admin SDK.
 
-That second point is the core of the design: **Admin SDK bypasses Firestore security rules.** If audit logs lived in the same project as user data, a full compromise of the Cloud Functions codebase (stolen credentials, leaked `.env`, whatever) would hand an attacker Admin SDK access — meaning they could read every log entry, including the IP address tied to each event. IP address is the one field in this whole system that could deanonymize a user by linking a device to a real network identity, so it's the one thing that must never be readable under any compromise scenario. Writing logs through the client SDK instead means the write path is bound by ordinary Firestore rules (`firestore-logs-project.rules`): `allow read: if false`, no exceptions — no code path in this system, compromised or not, has a way around it. Deletion is blocked too, so an attacker can't quietly erase the trail either, but that's secondary; the main guarantee is that the IP simply never comes back out.
+That second point is the core of the design: **Admin SDK bypasses Firestore security rules.** If audit logs lived in the same project as user data, a full compromise of the Cloud Functions codebase (stolen credentials, leaked `.env`, whatever) would hand an attacker Admin SDK access — meaning they could read every log entry, including the IP address tied to each event. IP address is the one field in this whole system that could deanonymize a user by linking a device to a real network identity, so it's the one thing that must never be readable under any compromise scenario. Writing logs through the client SDK instead means the write path is bound by ordinary Firestore rules (`firestore-logs-project.rules`): `allow read: if false`, no exceptions — no code path in this system, compromised or not, has a way around it. Deletion is blocked too, so an attacker can't quietly erase the trail either, but that's secondary; the main guarantee is that the IP simply never comes back out. The application can write logs, but no client, user, or compromised process can read them back — they're only viewable through a separate, restricted dashboard.
 
 ### Hardening the logs rules for your fork
 
@@ -80,6 +80,38 @@ This is deliberately documented rather than hidden:
 - **Rooted Android devices** can spoof their Android ID, and Android ID **changes on factory reset** — both can bypass the one-device-per-account check. A stricter alternative is Google's **Play Integrity API**, which adds hardware-backed attestation at the cost of extra complexity and platform dependency. This repo doesn't implement it; the trade-off accepted here is that bypassing requires deliberate, technical effort (rooting + spoofing), which is a small minority case compared to the casual multi-accounting this system already prevents for everyone else.
 - **Device loss** is handled by the recovery-code flow, and login itself is **not** device-bound (only signup is) — a user can log into their existing account from any device once they know their password.
 - **No rate limiting** is implemented at the application layer in this repo; add Firebase App Check and/or Cloud Functions rate limiting before production use.
+
+## Performance tuning (optional)
+
+The defaults in this repo favor correctness and security margin over raw speed — that's a deliberate choice, not an oversight, so read the trade-off before changing anything. If signup/login latency matters more for your use case, here's what's safe to tune and what to be careful with:
+
+**Argon2id parameters.** The shipped config uses the library's stronger defaults. OWASP's published *minimum* acceptable interactive-login parameters (`memoryCost: 19456` / 19 MiB, `timeCost: 2`, `parallelism: 1`) will noticeably cut hashing time at the cost of some brute-force resistance margin. This is a legitimate, citable trade-off — just make it deliberately:
+
+```js
+await argon2.hash(password, {
+  type: argon2.argon2id,   // node-argon2 already defaults to argon2id; stating it keeps the choice explicit
+  memoryCost: 19456,
+  timeCost: 2,
+  parallelism: 1,
+});
+```
+
+No migration step needed either way — Argon2's hash string embeds its own parameters, so `argon2.verify()` keeps working on hashes generated under any prior settings.
+
+**Cloud Function memory.** Firebase (2nd-gen) allocates CPU proportional to memory. Bumping from the default to 512MB roughly doubles available CPU, which directly speeds up Argon2's CPU-bound hashing. Total compute cost (GB-seconds) is close to a wash, since the function also finishes faster.
+
+**Run the post-auth writes concurrently, not sequentially — but keep them awaited.** `last_login` and the audit-log write don't depend on each other, so running them together saves a round-trip:
+
+```js
+await Promise.all([
+  userDoc.ref.update({ last_login: admin.firestore.FieldValue.serverTimestamp() }),
+  logLogin(username, userData.user_id, userData.platform, context)
+]);
+```
+
+Do **not** turn this into fire-and-forget (returning the response before this resolves). Cloud Functions can freeze the execution environment immediately after a response is sent, which can silently kill an in-flight write before it lands — for most apps that's a minor annoyance, but for this system specifically, the isolated audit log *is* the mechanism behind the "protected even under full compromise" guarantee. A log that sometimes silently fails to write undermines that claim without any visible error. Concurrent-but-awaited gets the latency win without that risk.
+
+**Function region.** Firestore's location is set via `firebase.json` (`asia-south1` in this repo), but that does **not** automatically pin where the Cloud Functions themselves execute — functions can end up deployed to a different default region, making every Firestore round-trip (signup alone does two reads, a write to the main project, and a write to the separate logs project) cross regions on every call. Check your deployed functions' actual region and pin it to match your Firestore location if they don't already line up; this is often a larger, and easily missed, contributor to latency than the Argon2 parameters above.
 
 ## Setup
 
@@ -124,6 +156,4 @@ I designed the architecture and made every security decision in this system — 
 
 ## License
 
-**Polyform Noncommercial 1.0.0** — see [`LICENSE`](./LICENSE).
-
-Free to use, study, modify, and share for personal, academic, and other noncommercial purposes. **Commercial use requires a separate license from the author** — reach out if that's what you need. This is a deliberate choice: the device-binding and isolated-logging design here is the core mechanism behind a commercial product of mine, so this repo is shared to be read, learned from, and built on for noncommercial work — not folded into a competing paid product without permission.
+No license has been added yet, so by default **all rights are reserved** by the author. The code is public so it can be read, studied and discussed, but it is not yet licensed for reuse, copying or redistribution. A license may be added later; if you'd like to use this work in the meantime, please get in touch with the author.
