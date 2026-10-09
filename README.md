@@ -156,4 +156,4 @@ I designed the architecture and made every security decision in this system — 
 
 ## License
 
-No license has been added yet, so by default **all rights are reserved** by the author. The code is public so it can be read, studied and discussed, but it is not yet licensed for reuse, copying or redistribution. A license may be added later; if you'd like to use this work in the meantime, please get in touch with the author.
+No license has been added yet
